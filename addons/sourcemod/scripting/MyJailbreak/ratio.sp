@@ -36,10 +36,6 @@
 #include <myjailbreak>
 #include <clientprefs>
 
-#undef REQUIRE_PLUGIN
-#include <stamm>
-#define REQUIRE_PLUGIN
-
 
 //Compiler Options
 #pragma semicolon 1
@@ -65,19 +61,17 @@ ConVar gc_iQuestionTimes;
 ConVar gc_bBalanceTerror;
 ConVar gc_bBalanceGuards;
 ConVar gc_bBalanceWarden;
-ConVar gc_iMinStammPoints;
 
 
 //Booleans
 bool g_bRatioEnable = true;
 bool g_bQueueCooldown[MAXPLAYERS+1] = false;
-bool gp_bStamm = false;
 
 
 //Handles
 Handle g_aGuardQueue;
 Handle g_aGuardList;
-Handle g_sCookieCTBan;
+Handle g_hOnClientJoinGuards;
 
 
 //Integer
@@ -100,6 +94,12 @@ public Plugin myinfo = {
 	url = MYJB_URL_LINK
 };
 
+public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max)
+{
+	g_hOnClientJoinGuards = CreateGlobalForward("MyJB_OnClientJoinGuardQueue", ET_Event, Param_Cell);
+	
+	return APLRes_Success;
+}
 
 //Start
 public void OnPluginStart()
@@ -138,7 +138,6 @@ public void OnPluginStart()
 	gc_bAdsVIP = AutoExecConfig_CreateConVar("sm_ratio_adsvip", "1", "0 - disabled, 1 - enable adverstiment for 'VIPs moved to front of queue' when player types !quard ", _, true,  0.0, true, 1.0);
 	gc_iJoinMode = AutoExecConfig_CreateConVar("sm_ratio_join_mode", "1", "0 - instandly join ct/queue, no confirmation / 1 - confirm rules / 2 - Qualification questions", _, true,  0.0, true, 2.0);
 	gc_iQuestionTimes = AutoExecConfig_CreateConVar("sm_ratio_questions", "3", "How many question a player have to answer before join ct/queue. need sm_ratio_join_mode 2", _, true,  1.0, true, 5.0);
-	gc_iMinStammPoints = AutoExecConfig_CreateConVar("sm_ratio_stamm", "0", "0 - disabled, how many stamm points a player need to join ct? (only if stamm is available)", _, true,  1.0, true, 5.0);
 	gc_bAdminBypass = AutoExecConfig_CreateConVar("sm_ratio_vip_bypass", "1", "Bypass Admin/VIP though agreement / question", _, true,  0.0, true, 1.0);
 	gc_bBalanceTerror = AutoExecConfig_CreateConVar("sm_ratio_balance_terror", "1", "0 = Could result in unbalanced teams. 1 = Switch a random T, when nobody is in guardqueue to balance the teams.", _, true, 0.0, true, 1.0);
 	gc_bBalanceGuards = AutoExecConfig_CreateConVar("sm_ratio_balance_guard", "1", "Mode to choose a guard to be switch to T on balance the teams. 1 = Last In First Out / 0 = Random Guard", _, true, 0.0, true, 1.0);
@@ -163,11 +162,6 @@ public void OnPluginStart()
 	//Prepare
 	g_aGuardQueue = CreateArray();
 	g_aGuardList = CreateArray();
-	
-	
-	//Cookies
-	if ((g_sCookieCTBan = FindClientCookie("Banned_From_CT")) == INVALID_HANDLE)
-		g_sCookieCTBan = RegClientCookie("Banned_From_CT", "Tells if you are restricted from joining the CT team", CookieAccess_Protected);
 }
 
 
@@ -245,27 +239,6 @@ public void OnConfigsExecuted()
 			RegAdminCmd(sCommand, AdminCommand_RemoveFromQueue, ADMFLAG_GENERIC, "Allows the admin to remove player from queue to CT");
 	}
 }
-
-
-public void OnAllPluginsLoaded()
-{
-	gp_bStamm = LibraryExists("stamm");
-}
-
-
-public void OnLibraryRemoved(const char[] name)
-{
-	if (StrEqual(name, "stamm"))
-		gp_bStamm = false;
-}
-
-
-public void OnLibraryAdded(const char[] name)
-{
-	if (StrEqual(name, "stamm"))
-		gp_bStamm = true;
-}
-
 
 /******************************************************************************
                    COMMANDS
@@ -367,24 +340,13 @@ public Action Command_JoinGuardQueue(int client, int iArgNum)
 		return Plugin_Handled;
 	}
 	
-	if (gp_bStamm && gc_iMinStammPoints.IntValue != 0)
-	{
-		if (STAMM_GetClientPoints(client) < gc_iMinStammPoints.IntValue)
-		{
-			CReplyToCommand(client, "%t %t", "ratio_tag" , "ratio_stamm", gc_iMinStammPoints.IntValue);
-			return Plugin_Handled;
-		}
-	}
+	Action res = Plugin_Continue;
+	Call_StartForward(g_hOnClientJoinGuards);
+	Call_PushCell(client);
+	Call_Finish();
 	
-	char szCookie[2];
-	GetClientCookie(client, g_sCookieCTBan, szCookie, sizeof(szCookie));
-	if (szCookie[0] == '1')
-	{
-		ClientCommand(client, "play %s", g_sRestrictedSound);
-		CReplyToCommand(client, "%t %t", "ratio_tag" , "ratio_banned");
-		FakeClientCommand(client, "sm_isbanned @me");
+	if (res >= Plugin_Handled)
 		return Plugin_Handled;
-	}
 	
 	
 	int iIndex = FindValueInArray(g_aGuardQueue, client);
@@ -478,7 +440,7 @@ public Action Command_ToggleRatio(int client, int args)
                    EVENTS
 ******************************************************************************/
 
-
+/*
 public Action Event_OnPlayerSpawn(Event event, const char[] name, bool bDontBroadcast) 
 {
 	int client = GetClientOfUserId(event.GetInt("userid"));
@@ -502,7 +464,7 @@ public Action Event_OnPlayerSpawn(Event event, const char[] name, bool bDontBroa
 	
 	return Plugin_Continue;
 }
-
+*/
 
 public void Event_PlayerTeam_Post(Event event, const char[] szName, bool bDontBroadcast)
 {
@@ -571,24 +533,14 @@ public Action Event_OnJoinTeam(int client, const char[] szCommand, int iArgCount
 		return Plugin_Handled;
 	}
 	
-	if (gp_bStamm && gc_iMinStammPoints.IntValue != 0)
-	{
-		if (STAMM_GetClientPoints(client) < gc_iMinStammPoints.IntValue)
-		{
-			CReplyToCommand(client, "%t %t", "ratio_tag" , "ratio_stamm", gc_iMinStammPoints.IntValue);
-			return Plugin_Handled;
-		}
-	}
+	Action res = Plugin_Continue;
+	Call_StartForward(g_hOnClientJoinGuards);
+	Call_PushCell(client);
+	Call_Finish();
 	
-	GetClientCookie(client, g_sCookieCTBan, szData, sizeof(szData));
-	
-	if (szData[0] == '1')
-	{
-		ClientCommand(client, "play %s", g_sRestrictedSound);
-		CPrintToChat(client, "%t %t", "ratio_tag" , "ratio_banned");
-		FakeClientCommand(client, "sm_isbanned @me");
+	if (res >= Plugin_Handled)
 		return Plugin_Handled;
-	}
+	
 	if (!CanClientJoinGuards(client))
 	{
 		int iIndex = FindValueInArray(g_aGuardQueue, client);
@@ -942,7 +894,6 @@ public int ViewQueueMenuHandle(Menu hMenu, MenuAction action, int client, int op
 		RemovePlayerFromGuardQueue(user);
 		
 		CPrintToChatAll("%t %t", "ratio_tag", "ratio_removed", client, user);
-		
 	}
 	else if (action == MenuAction_Cancel)
 	{
@@ -1139,7 +1090,6 @@ stock int GetRandomClientFromTeam(int iTeam, bool bSkipCTBanned=true)
 {
 	int iNumFound;
 	int clients[MAXPLAYERS];
-	char szCookie[2];
 	
 	LoopValidClients(i, true, true)
 	{
@@ -1154,18 +1104,13 @@ stock int GetRandomClientFromTeam(int iTeam, bool bSkipCTBanned=true)
 		
 		if (bSkipCTBanned)
 		{
-			if (!AreClientCookiesCached(i))
-				continue;
+			Action res = Plugin_Continue;
+			Call_StartForward(g_hOnClientJoinGuards);
+			Call_PushCell(client);
+			Call_Finish();
 			
-			GetClientCookie(i, g_sCookieCTBan, szCookie, sizeof(szCookie));
-			if (szCookie[0] == '1')
+			if (res >= Plugin_Handled)
 				continue;
-			
-			if (gp_bStamm && gc_iMinStammPoints.IntValue != 0)
-			{
-				if (STAMM_GetClientPoints(i) < gc_iMinStammPoints.IntValue)
-					continue;
-			}
 		}
 		
 		clients[iNumFound++] = i;
