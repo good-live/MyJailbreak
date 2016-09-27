@@ -343,7 +343,7 @@ public Action Command_JoinGuardQueue(int client, int iArgNum)
 	Action res = Plugin_Continue;
 	Call_StartForward(g_hOnClientJoinGuards);
 	Call_PushCell(client);
-	Call_Finish();
+	Call_Finish(res);
 	
 	if (res >= Plugin_Handled)
 		return Plugin_Handled;
