@@ -197,7 +197,7 @@ native void BeaconOff(int client);
  * Called when a client trys to join the Guards / GuardQueue
  *
  * @param status		Client ID
- * @return              Return Plugin_Handled to block the client.
+ * @return                      Return Plugin_Handled to block the client.
  *********************************************************/
  
 forward Action MyJB_OnClientJoinGuardQueue(int client);
